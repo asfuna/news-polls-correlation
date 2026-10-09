@@ -11,7 +11,7 @@ Tracks weekly news coverage by theme against the governing coalition's average s
 | `data/processed/` | Generated `news_coverage.csv`, `polls_weekly.csv`, `correlations.csv`, and supplementary `news_zscores_polls.csv`. |
 | `prompts/` | Runnable `categorize_posts.md` and `taxonomy.json`. `src/categorize.py` does the categorization's data work: prep, checks and the final join. |
 
-The prompt lists the taxonomy with numeric codes taken from `prompts/taxonomy.json` (`domains[].tags[]` and then `excluded`, in file order). `src/categorize.py` maps each code to its `topic`, `field` and `theme` and checks every label against the file. `data/processed/news_coverage_by_theme.csv` is retained only as unused legacy output from the old English taxonomy.
+The prompt lists the taxonomy with numeric codes taken from `prompts/taxonomy.json` (`domains[].tags[]` and then `excluded`, in file order). `src/categorize.py` maps each code to its `topic`, `field` and `theme` and checks every label against the file.
 
 ## Pipeline
 
