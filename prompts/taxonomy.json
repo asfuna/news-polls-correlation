@@ -1,0 +1,123 @@
+{
+ "levels": {
+  "topic": "תחום",
+  "field": "תגית",
+  "theme": "תימה"
+ },
+ "no_theme": "ללא תימה",
+ "domains": [
+  {
+   "domain": "ביטחון",
+   "tags": [
+    {"tag": "טרור בתוך ישראל", "theme": "טרור בתוך ישראל", "desc": "Attacks, attempted attacks and foiled attacks inside Israel."},
+    {"tag": "איראן", "theme": "חזיתות"},
+    {"tag": "מוסר הלחימה ותדמית צה\"ל", "theme": "מעמד בינלאומי", "desc": "IDF conduct in combat, war-crime allegations, the IDF's image in Israel and abroad."},
+    {"tag": "עזה", "theme": "חזיתות"},
+    {"tag": "יהודה ושומרון / מתנחלים", "theme": "ללא תימה", "theme_if_settler_violence": "כאוס ומשילות פנימית", "desc": "West Bank and settlements. Settler violence (assaults, arson, nationalist crime and arrests over them) moves the post to theme כאוס ומשילות פנימית."},
+    {"tag": "חטופים ונעדרים", "theme": "חזיתות"},
+    {"tag": "המזרח התיכון", "theme": "חזיתות", "desc": "Syria, Egypt, Jordan, the Gulf states and other regional actors when no specific front tag fits."},
+    {"tag": "לבנון / חיזבאללה", "theme": "חזיתות"},
+    {"tag": "מחדלים ותפקוד המדינה", "theme": "מחדלים ותפקוד המדינה", "desc": "Failures of state institutions and the security establishment."},
+    {"tag": "החות'ים", "theme": "חזיתות"},
+    {"tag": "מילואים", "theme": "שוויון בנטל ודת", "desc": "Reservists, their burden, compensation and protests."},
+    {"tag": "היעדר הכרעה", "theme": "פוליטיקה ובחירות", "desc": "The debate over the war ending without victory or a decisive outcome."}
+   ]
+  },
+  {
+   "domain": "חברה",
+   "tags": [
+    {"tag": "פשיעה ואלימות", "theme": "כאוס ומשילות פנימית"},
+    {"tag": "תחבורה ותעופה", "theme": "כאוס ומשילות פנימית"},
+    {"tag": "בריאות", "theme": "ללא תימה"},
+    {"tag": "חינוך והשכלה גבוהה", "theme": "ללא תימה"},
+    {"tag": "תאונות ואסונות", "theme": "כאוס ומשילות פנימית"},
+    {"tag": "ישראלים בחו\"ל", "theme": "ללא תימה"},
+    {"tag": "רווחה ושירותים חברתיים", "theme": "ללא תימה"},
+    {"tag": "שלטון מקומי", "theme": "ללא תימה"},
+    {"tag": "פשיעה בחברה הערבית", "theme": "כאוס ומשילות פנימית"}
+   ]
+  },
+  {
+   "domain": "פוליטיקה ובחירות",
+   "tags": [
+    {"tag": "קמפיין מפלגות אחרות", "theme": "פוליטיקה ובחירות"},
+    {"tag": "קמפיין הליכוד ורשימתו", "theme": "פוליטיקה ובחירות", "desc": "Likud primaries, reserved slots and list placements, Likud campaign messaging."},
+    {"tag": "הליך הבחירות", "theme": "פוליטיקה ובחירות", "desc": "Central Elections Committee, dates, disqualifications and voting procedures."},
+    {"tag": "איחודים ומפלגות חדשות", "theme": "פוליטיקה ובחירות"},
+    {"tag": "סקרים", "theme": "פוליטיקה ובחירות"},
+    {"tag": "המפלגות הערביות ושאלת הקואליציה", "theme": "פוליטיקה ובחירות"},
+    {"tag": "קמפיין ישר!", "theme": "פוליטיקה ובחירות"},
+    {"tag": "מחאה ותנועות מחאה", "theme": "פוליטיקה ובחירות"},
+    {"tag": "יציבות הקואליציה", "theme": "פוליטיקה ובחירות"}
+   ]
+  },
+  {
+   "domain": "כלכלה",
+   "tags": [
+    {"tag": "שוק ההון", "theme": "כלכלה ויוקר המחיה"},
+    {"tag": "דיור ונדל\"ן", "theme": "כלכלה ויוקר המחיה"},
+    {"tag": "תעסוקה ושכר", "theme": "כלכלה ויוקר המחיה"},
+    {"tag": "יוקר המחיה", "theme": "כלכלה ויוקר המחיה"},
+    {"tag": "תקציב ומיסים", "theme": "כלכלה ויוקר המחיה"},
+    {"tag": "ריבית ואינפלציה", "theme": "כלכלה ויוקר המחיה"}
+   ]
+  },
+  {
+   "domain": "שלטון החוק",
+   "tags": [
+    {"tag": "חופש העיתונות", "theme": "דמוקרטיה ושלטון החוק"},
+    {"tag": "יועמ\"ש ומערכת המשפט", "theme": "דמוקרטיה ושלטון החוק"},
+    {"tag": "פוליטיזציה של גופי המדינה", "theme": "דמוקרטיה ושלטון החוק"},
+    {"tag": "קטארגייט", "theme": "אחריות ו-7 באוקטובר"},
+    {"tag": "משפט נתניהו וחנינה", "theme": "אחריות ו-7 באוקטובר"}
+   ]
+  },
+  {
+   "domain": "יחסי חוץ",
+   "tags": [
+    {"tag": "בידוד בינלאומי וסנקציות", "theme": "מעמד בינלאומי"},
+    {"tag": "אנטישמיות בעולם", "theme": "מעמד בינלאומי"},
+    {"tag": "ארה\"ב / טראמפ", "theme": "מעמד בינלאומי"},
+    {"tag": "נורמליזציה ודיפלומטיה", "theme": "מעמד בינלאומי"}
+   ]
+  },
+  {
+   "domain": "7 באוקטובר",
+   "tags": [
+    {"tag": "אחריות וועדת חקירה", "theme": "אחריות ו-7 באוקטובר"},
+    {"tag": "זיכרון, הנצחה ונפגעים", "theme": "אחריות ו-7 באוקטובר"}
+   ]
+  },
+  {
+   "domain": "דת, חרדים ושוויון בנטל",
+   "tags": [
+    {"tag": "גיוס חרדים / שוויון בנטל", "theme": "שוויון בנטל ודת"},
+    {"tag": "דת ומדינה", "theme": "שוויון בנטל ודת"}
+   ]
+  },
+  {
+   "domain": "עולם",
+   "tags": [
+    {"tag": "פוליטיקה בעולם", "theme": "מעמד בינלאומי", "desc": "Elections and domestic politics in other countries, unrelated to Israel."}
+   ]
+  }
+ ],
+ "excluded": {
+  "domain": "מחוץ לניתוח",
+  "theme": "ללא תימה",
+  "tags": [
+   "ידוענים ובידור",
+   "קידום תוכניות של הכלי",
+   "תרבות ואמנות",
+   "אוכל ופנאי",
+   "ספורט",
+   "מזג אוויר",
+   "צרכנות",
+   "מדע וטכנולוגיה",
+   "חדשות מהעולם",
+   "חברות ועסקים",
+   "חגים ומסורת",
+   "לא ניתן לסיווג"
+  ]
+ }
+}

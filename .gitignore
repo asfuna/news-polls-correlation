@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Categorization work files (src/categorize.py)
+data/llm-processed/work/
