@@ -46,11 +46,12 @@ uv sync
    uv run src/clean.py --exclude-ch14-i24  # without Channel 14 and i24 News
    ```
 
-3. **Analyze.** `uv run src/analyze.py` drops `מחוץ לניתוח`, counts posts per `week, topic, field, theme` (missing weeks = 0), z-scores each count within its `topic, field, theme` across weeks (sample std), sets `poll_change(w) = gov(w+1) − gov(w−1)`, and writes the per-group Pearson correlation of z-score vs. `poll_change` to `correlations.csv`.
+3. **Analyze.** `uv run src/analyze.py` drops `מחוץ לניתוח`, counts posts per `week, topic, field, theme` (missing weeks = 0), z-scores each count within its `topic, field, theme` across weeks (sample std), sets `poll_change(w) = gov(w+1) − gov(w−1)`, and writes the per-group Pearson correlation of z-score vs. `poll_change` to `correlations.csv`. Each correlation gets two-sided permutation p-values. Every ordering of the weekly `poll_change` values is applied to all groups at once; above 100,000 orderings, a seeded random sample of 100,000 is used. `p_value` compares a group's |r| with its own shuffled values. `p_value_adjusted` compares it with the largest |r| across all groups in each shuffle (max-T), which corrects for testing every group.
 
 ## Caveats
 
 - These are social posts, not articles or broadcast segments; 38% have no caption, mostly Instagram.
 - The weeks of 30 Aug and 6 Sep have about 30% fewer posts. It has not been checked whether this is a real dip or a collection gap.
+- The permutation p-values treat weeks as interchangeable. They aren't: `poll_change` windows two weeks apart share a poll reading, and coverage carries over between weeks, so the p-values are optimistic.
 
 Requires [uv](https://docs.astral.sh/uv/). Python 3.12 is pinned in `.python-version`; dependencies are declared in `pyproject.toml` and locked in `uv.lock`. `uv sync` creates `.venv`; `uv run` syncs it automatically.
