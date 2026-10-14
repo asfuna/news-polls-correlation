@@ -6,7 +6,7 @@ Tracks weekly news coverage by theme against the governing coalition's average s
 
 | Directory | Contents |
 |---|---|
-| `data/raw/` | Inputs: `news_coverage.xlsx` (25 outlets' main Facebook/Instagram posts, 16 Aug–3 Oct 2026; `Posts` sheet for categorization, `Coverage` sheet for cleaning, `README` sheet for collection notes; seven Sunday–Saturday weeks, with `week_id` as the Sunday date) and `israel_2026_seat_polls.csv` (fieldwork date, firm, publisher, party seats, and coalition seats in `Gov.`). |
+| `data/raw/` | Inputs: `news_coverage.xlsx` (main Facebook/Instagram news accounts of 24 Israeli outlets plus 14 non-traditional news pages, 1 Jan–5 Oct 2026; `Posts` sheet for categorization and weekly outlet counts, `README` sheet for collection notes and per-account collection gaps; its `Coverage` sheet holds uncached formulas and is not read; Sunday–Saturday weeks from 28 Dec 2025 to 4 Oct 2026, with `week_id` as the Sunday date) and `israel_2026_seat_polls.csv` (fieldwork date, firm, publisher, party seats, and coalition seats in `Gov.`). |
 | `data/llm-processed/` | `news_posts_categorized.csv`: UTF-8, readable top-label view with one row per source post, joined by `item_id`. `news_posts_topic_weights.csv`: fractional topic weights with columns `item_id,topic,field,theme,weight`. `work/` holds batch, label, and probability files during a categorization run; `finalize` deletes it. |
 | `data/processed/` | Generated `news_coverage.csv`, `polls_weekly.csv`, `correlations.csv`, and supplementary `news_zscores_polls.csv`. |
 | `prompts/` | Runnable `categorize_posts.md` and `taxonomy.json`. `src/categorize.py` does the categorization's data work: prep, checks and the final join. |
@@ -24,7 +24,7 @@ flowchart LR
   TAXONOMY["prompts/taxonomy.json"] --> FINALIZE
   FINALIZE --> CATEGORIZED["data/llm-processed/news_posts_categorized.csv<br/>readable top-label view"]
   FINALIZE --> WEIGHTS["data/llm-processed/news_posts_topic_weights.csv<br/>fractional topic weights"]
-  WORKBOOK -->|Coverage sheet| CLEAN
+  WORKBOOK -->|Posts sheet| CLEAN
   POLLS["data/raw/israel_2026_seat_polls.csv"] --> CLEAN["src/clean.py"]
   CLEAN --> COVERAGE["data/processed/news_coverage.csv"]
   CLEAN --> WEEKLY_POLLS["data/processed/polls_weekly.csv"]
@@ -41,7 +41,7 @@ uv sync
 ```
 
 1. **Categorize.** Paste `prompts/categorize_posts.md` into omp at the repo root. The agent runs `src/categorize.py prep`, which auto-labels posts with no caption and merges duplicate captions. The helper in `src/judge_labels.py` sends the remaining distinct captions to omp's judge, which returns a probability for every tag; the agent hand-labels only captions the judge fails on twice. Then it runs `src/categorize.py finalize`, which writes `data/llm-processed/news_posts_categorized.csv` as the readable top-label view with `topic, field, theme, confidence` for every post, and `data/llm-processed/news_posts_topic_weights.csv` with `item_id,topic,field,theme,weight` for fractional topic weights.
-2. **Clean.** Melts the `Coverage` sheet into `news_coverage.csv` and averages `Gov.` per Sunday week (week of the last fieldwork day) into `polls_weekly.csv`:
+2. **Clean.** Counts posts per outlet and Sunday week from the `Posts` sheet into `news_coverage.csv` and averages `Gov.` per Sunday week (week of the last fieldwork day) into `polls_weekly.csv`:
 
    ```sh
    uv run src/clean.py                     # all publishers
@@ -52,8 +52,8 @@ uv sync
 
 ## Caveats
 
-- These are social posts, not articles or broadcast segments; 38% have no caption, mostly Instagram.
-- The weeks of 30 Aug and 6 Sep have about 30% fewer posts. It has not been checked whether this is a real dip or a collection gap.
+- These are social posts, not articles or broadcast segments; about 1% have no caption.
+- Jan–Aug posts come from a backfill collected 12–14 Oct 2026, so their engagement counts are later snapshots than those of monitored posts. Several accounts have collection gaps of 14+ days (listed in the workbook's `README` and `Accounts` sheets), which lower weekly counts for the weeks they cover.
 - The permutation p-values treat weeks as interchangeable. They aren't: `poll_change` windows two weeks apart share a poll reading, and coverage carries over between weeks, so the p-values are optimistic.
 
 Requires [uv](https://docs.astral.sh/uv/). Python 3.12 is pinned in `.python-version`; dependencies are declared in `pyproject.toml` and locked in `uv.lock`. `uv sync` creates `.venv`; `uv run` syncs it automatically.

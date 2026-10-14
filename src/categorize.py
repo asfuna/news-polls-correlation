@@ -42,11 +42,11 @@ PROBABILITY_CUTOFF = 0.01
 WEIGHT_COLUMNS = ["item_id", "topic", "field", "theme", "weight"]
 
 SOURCE_COLUMNS = [
-    "item_id", "week_id", "week_dates", "post_time_il", "outlet", "outlet_type", "platform",
-    "account", "text", "has_text", "post_url", "likes", "comments", "shares",
+    "item_id", "week_id", "week_dates", "post_date", "post_time_il", "outlet", "outlet_type",
+    "platform", "account", "text", "has_text", "narrative_tag", "post_url", "likes", "comments",
+    "shares", "total_interactions",
 ]
 LABEL_COLUMNS = ["topic", "field", "theme", "confidence"]
-EXPECTED_ROWS = 14_218
 TEXT_LIMIT = 400
 SNIPPET_LEN = 40
 CONFIDENCE = {"h": "high", "m": "medium", "l": "low"}
@@ -61,8 +61,6 @@ INVISIBLE_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2800\ufeff
 def load_source() -> pd.DataFrame:
     posts = pd.read_excel(SOURCE_PATH, sheet_name="Posts", engine="openpyxl")
     problems = []
-    if len(posts) != EXPECTED_ROWS:
-        problems.append(f"{len(posts)} rows, expected {EXPECTED_ROWS}")
     if list(posts.columns) != SOURCE_COLUMNS:
         problems.append(f"columns {list(posts.columns)}")
     elif posts["item_id"].isna().any() or not posts["item_id"].is_unique:
@@ -88,7 +86,8 @@ def snippet(text: str) -> str:
 
 
 def source_digest(posts: pd.DataFrame) -> str:
-    payload = posts[["item_id", "text"]].to_json(orient="values", force_ascii=False)
+    """Fingerprint the whole Posts sheet: every row, column, and value, in order."""
+    payload = posts.to_json(orient="split", index=False, force_ascii=False, date_format="iso")
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -399,7 +398,7 @@ def cmd_finalize(_: argparse.Namespace) -> None:
     weight_out.to_csv(WEIGHTS_PATH, index=False, encoding="utf-8")
 
     written = pd.read_csv(OUTPUT_PATH, encoding="utf-8")
-    if list(written.columns) != SOURCE_COLUMNS + LABEL_COLUMNS or len(written) != EXPECTED_ROWS \
+    if list(written.columns) != SOURCE_COLUMNS + LABEL_COLUMNS or len(written) != len(posts) \
             or list(written["item_id"]) != item_ids:
         sys.exit(f"Written CSV failed verification: {OUTPUT_PATH}")
     shutil.rmtree(WORK_DIR)

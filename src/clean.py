@@ -16,27 +16,36 @@ POLLS_PATH = RAW_DATA_DIR / "israel_2026_seat_polls.csv"
 NEWS_COVERAGE_OUTPUT_PATH = PROCESSED_DATA_DIR / "news_coverage.csv"
 POLLS_WEEKLY_OUTPUT_PATH = PROCESSED_DATA_DIR / "polls_weekly.csv"
 
-NEWS_ID_COLUMNS = ["outlet", "type", "platforms"]
+POSTS_COLUMNS = ["week_id", "outlet", "outlet_type", "platform"]
 NEWS_OUTPUT_COLUMNS = ["week", "outlet", "outlet_type", "platforms", "posts"]
 POLL_OUTPUT_COLUMNS = ["week", "gov"]
 EXCLUDED_PUBLISHERS = {"Channel 14", "i24 News"}
 POLL_YEAR = 2026
 
 
-def clean_news_coverage(coverage: pd.DataFrame) -> pd.DataFrame:
-    """Reshape Sunday coverage columns into outlet-week rows."""
-    news = coverage.loc[coverage["outlet"] != "TOTAL"].melt(
-        id_vars=NEWS_ID_COLUMNS,
-        var_name="week",
-        value_name="posts",
+def clean_news_coverage(posts: pd.DataFrame) -> pd.DataFrame:
+    """Count posts per outlet and Sunday week; weeks with no posts get no row.
+
+    The workbook's Coverage sheet holds these counts as uncached formulas over
+    the Posts sheet, so they are computed from Posts directly.
+    """
+    platforms = (
+        posts.groupby("outlet")["platform"]
+        .agg(lambda values: ", ".join(sorted(values.unique())))
+        .rename("platforms")
+    )
+    news = (
+        posts.groupby(["week_id", "outlet", "outlet_type"])
+        .size()
+        .rename("posts")
+        .reset_index()
+        .join(platforms, on="outlet")
+        .rename(columns={"week_id": "week"})
     )
     news["week"] = pd.to_datetime(news["week"]).dt.strftime("%Y-%m-%d")
-    news["posts"] = pd.to_numeric(news["posts"], errors="coerce")
-    news = news.dropna(subset=["posts"]).copy()
     news["posts"] = news["posts"].astype("int64")
     return (
-        news.rename(columns={"type": "outlet_type"})
-        .sort_values(["week", "outlet"], kind="stable")
+        news.sort_values(["week", "outlet"], kind="stable")
         .reindex(columns=NEWS_OUTPUT_COLUMNS)
         .reset_index(drop=True)
     )
@@ -98,10 +107,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    coverage = pd.read_excel(NEWS_COVERAGE_PATH, sheet_name="Coverage")
+    posts = pd.read_excel(NEWS_COVERAGE_PATH, sheet_name="Posts", usecols=POSTS_COLUMNS)
     polls = pd.read_csv(POLLS_PATH)
 
-    news_coverage = clean_news_coverage(coverage)
+    news_coverage = clean_news_coverage(posts)
     polls_weekly = clean_weekly_polls(
         polls,
         exclude_ch14_i24=args.exclude_ch14_i24,

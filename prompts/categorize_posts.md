@@ -8,15 +8,15 @@ The posts are Facebook/Instagram news posts from Israeli outlets, with captions 
 
 `src/categorize.py` handles everything except the classification itself. Run it with `uv run`, which creates and syncs `.venv` from `uv.lock` as needed.
 
-1. **Prepare.** Run `uv run src/categorize.py prep`. It checks the `Posts` sheet of `data/raw/news_coverage.xlsx` (14,218 rows, unique `item_id`, expected columns). If they don't match, it stops; report that and stop too. It then:
+1. **Prepare.** Run `uv run src/categorize.py prep`. It checks the `Posts` sheet of `data/raw/news_coverage.xlsx` (expected columns, unique non-null `item_id`). If they don't match, it stops; report that and stop too. It fingerprints the whole sheet (SHA-256 of every row and value) and stores the fingerprint in the work directory; if an existing work directory was built from a different fingerprint, it stops instead of resuming. It then:
    - labels posts with no usable caption (empty, or only links and @mentions) as `לא ניתן לסיווג` / `low`. You never see these.
    - cleans the captions: removes invisible characters, links and mentions, and collapses whitespace.
    - merges identical cleaned captions into one unit (`U00001`, …). Your label for a unit is copied to every post that shares the caption.
    - writes `data/llm-processed/work/batches/B###.txt`, about 150 units per file, one line each: `unit_id | outlet | caption`. Captions are cut at 400 characters; the headline is what counts.
    - writes a matching label template `data/llm-processed/work/labels/B###.tsv` with one line per unit: `unit_id<TAB><TAB><TAB><TAB>caption snippet`.
 
-   If the work directory already exists, `prep` keeps it and any labels already filled in. That is how a run resumes.
-2. **Classify with the judge.** Run `uv run src/categorize.py check` to see which batches are unfinished. In Python `eval` cells at the repo root, use `src/judge_labels.py` to send pending units to `judge_batch`; use `wait` after each batch until it finishes.
+   If the work directory already exists and its fingerprint matches the source, `prep` keeps it and any labels already filled in. That is how a run resumes.
+2. **Classify with the judge.** Run `uv run src/categorize.py check` to see which batches are unfinished. In Python `eval` cells at the repo root, use `src/judge_labels.py` to send pending units to `judge_batch`; the runner below waits for every chunk and persists its results as each one finishes.
 
    Each label line has five tab-separated columns:
 
@@ -25,41 +25,41 @@ The posts are Facebook/Instagram news posts from Israeli outlets, with captions 
    ```
 
    - Do not change the `unit_id` or snippet columns, and do not reorder, add or delete lines. `check` rejects the whole batch if you do. Leave already-filled lines alone; that is how a run resumes.
-   - Start the first pass in a Python `eval` cell:
+   - A single `judge_batch` call with the full corpus (over 100,000 units) fails with a broken pipe, so submit pending units in chunks of 5,000, at most four running at once. Define the runner in a Python `eval` cell:
      ```
-     import sys
+     import asyncio, sys
      sys.path.insert(0, "src")
      import judge_labels as jl
 
-     b = judge_batch(jl.pending_states(), jl.questions(), intent="Categorizing posts")
+     async def run(states, chunk=5000, parallel=4):
+         keys = list(states)
+         chunks = [{k: states[k] for k in keys[i:i + chunk]} for i in range(0, len(keys), chunk)]
+         failed, active = {}, []
+         while active or chunks:
+             while len(active) < parallel and chunks:
+                 active.append(judge_batch(chunks.pop(0), jl.questions(), intent="Categorizing posts"))
+             await asyncio.sleep(30)
+             for b in [b for b in active if not b.status()["running"]]:
+                 jl.write_results(b.results())
+                 failed.update(b.failed())
+                 b.close()
+                 active.remove(b)
+         return failed
      ```
-     Wait for `b` to finish. Then persist its successful results and collect the failed unit IDs:
+     Run the first pass in the same kernel with a cell timeout of 0, so the cell can run until every chunk finishes:
      ```
-     jl.write_results(b.results())
-     failed_ids = set(b.failed())
+     failed = await run(jl.pending_states())
      ```
-   - `b.failed()` maps unit IDs to errors, not states. Retry its failed keys once by selecting those keys from the current pending states:
+   - `failed` maps unit IDs to errors, not states. Retry its keys once by selecting them from the current pending states:
      ```
      pending = jl.pending_states()
-     retry_states = {
-         unit_id: state
-         for unit_id, state in pending.items()
-         if unit_id in failed_ids
-     }
-     if retry_states:
-         b = judge_batch(retry_states, jl.questions(), intent="Categorizing posts")
+     failed = await run({u: s for u, s in pending.items() if u in failed})
      ```
-     Wait for the retry batch to finish. If a retry was launched, persist its successful results and collect any remaining failed IDs:
-     ```
-     if retry_states:
-         jl.write_results(b.results())
-         failed_ids = set(b.failed())
-     ```
-     Hand-label any units still in `failed_ids`, reading each caption in its batch file.
+     Hand-label units still in `failed` after the retry, reading each caption in its batch file, only when their errors are about that caption. If the errors are service-wide (every item fails with the same account, quota or availability error), stop and report it; filled labels are kept, and rerunning this prompt resumes with only the unfilled units.
    - `jl.write_results` fills the code and confidence columns from the judge's results, including the helper-handled confidence rule and code 62's always-`l` behavior. For code 5, the fourth column is `sv` only when `sv.bool ≥ 0.5`; otherwise it is empty.
    - Print the counts per confidence and per code once the files are written.
 3. **Check.** `check` lists each problem: an unfilled line, a bad code or confidence, an `sv` flag on the wrong tag, an edited snippet, or changed line order. Fix every problem by re-reading the caption and choosing again. Never force a label just to pass the check.
-4. **Finalize.** Once every batch passes, run `uv run src/categorize.py finalize`. It copies the labels to every post and fills in `topic` and `theme` from `prompts/taxonomy.json`. It checks every label against the taxonomy, then writes `data/llm-processed/news_posts_categorized.csv`: UTF-8, no index, the 14 source columns in source order followed by `topic, field, theme, confidence`, 14,218 rows, with `week_id` as `YYYY-MM-DD`. It also writes `data/llm-processed/news_posts_topic_weights.csv` with columns `item_id,topic,field,theme,weight` for fractional topic weights; a hand-labelled caption gets weight 1 on its label. If that succeeds, it deletes the work directory. Report the counts it prints.
+4. **Finalize.** Once every batch passes, run `uv run src/categorize.py finalize`. It re-checks the source fingerprint, copies the labels to every post and fills in `topic` and `theme` from `prompts/taxonomy.json`. It checks every label against the taxonomy, then writes `data/llm-processed/news_posts_categorized.csv`: UTF-8, no index, the 17 source columns in source order followed by `topic, field, theme, confidence`, one row per source post, with `week_id` as `YYYY-MM-DD`. It also writes `data/llm-processed/news_posts_topic_weights.csv` with columns `item_id,topic,field,theme,weight` for fractional topic weights; a hand-labelled caption gets weight 1 on its label. If that succeeds, it deletes the work directory. Report the counts it prints.
 
 ## Classification rules
 
