@@ -1,12 +1,12 @@
-"""Prepare, check, and finalize hand classification of the Posts sheet.
+"""Prepare, check, and finalize judge-assisted classification and topic weights.
 
     uv run src/categorize.py prep       # validate source, build batches + label templates
     uv run src/categorize.py codes      # numbered taxonomy codes
     uv run src/categorize.py check      # validate filled label files, list unfinished batches
-    uv run src/categorize.py review     # labels worth a second look
-    uv run src/categorize.py finalize   # expand, validate, write the CSV, delete the work dir
+    uv run src/categorize.py finalize   # expand labels and weights, write both CSVs, delete work
 
-The model only reads `work/batches/B###.txt` and fills `work/labels/B###.tsv`.
+The omp judge reads `work/batches/B###.txt` and fills `work/labels/B###.tsv`;
+`work/probs/` retains its probability distributions until finalization.
 Empty captions, captions that are only links/mentions, and exact duplicates are
 handled here, so the model sees each distinct caption once.
 """
@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import shutil
 import sys
@@ -23,15 +24,22 @@ from pathlib import Path
 
 import pandas as pd
 
+from judge_labels import (
+    BATCH_DIR,
+    LABEL_DIR,
+    OUT_DIR,
+    PROBS_DIR,
+    UNITS_PATH,
+    WORK_DIR,
+    load_taxonomy,
+)
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 SOURCE_PATH = PROJECT_DIR / "data" / "raw" / "news_coverage.xlsx"
-TAXONOMY_PATH = PROJECT_DIR / "prompts" / "taxonomy.json"
-OUT_DIR = PROJECT_DIR / "data" / "llm-processed"
-WORK_DIR = OUT_DIR / "work"
-BATCH_DIR = WORK_DIR / "batches"
-LABEL_DIR = WORK_DIR / "labels"
-UNITS_PATH = WORK_DIR / "units.json"
 OUTPUT_PATH = OUT_DIR / "news_posts_categorized.csv"
+WEIGHTS_PATH = OUT_DIR / "news_posts_topic_weights.csv"
+PROBABILITY_CUTOFF = 0.01
+WEIGHT_COLUMNS = ["item_id", "topic", "field", "theme", "weight"]
 
 SOURCE_COLUMNS = [
     "item_id", "week_id", "week_dates", "post_time_il", "outlet", "outlet_type", "platform",
@@ -49,6 +57,7 @@ MENTION_RE = re.compile(r"@[\w.]+")
 INVISIBLE_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2800\ufeff]")
 
 
+
 def load_source() -> pd.DataFrame:
     posts = pd.read_excel(SOURCE_PATH, sheet_name="Posts", engine="openpyxl")
     problems = []
@@ -63,18 +72,6 @@ def load_source() -> pd.DataFrame:
     return posts
 
 
-def load_taxonomy() -> list[dict]:
-    """Tags in taxonomy.json order; code = index + 1."""
-    taxonomy = json.loads(TAXONOMY_PATH.read_text(encoding="utf-8"))
-    tags = [
-        {"topic": d["domain"], "field": t["tag"], "theme": t["theme"],
-         "sv_theme": t.get("theme_if_settler_violence")}
-        for d in taxonomy["domains"] for t in d["tags"]
-    ]
-    excluded = taxonomy["excluded"]
-    tags += [{"topic": excluded["domain"], "field": t, "theme": excluded["theme"], "sv_theme": None}
-             for t in excluded["tags"]]
-    return tags
 
 
 def clean_caption(text: object) -> str:
@@ -190,7 +187,7 @@ def parse_batch(batch: dict, units: dict, tags: list[dict]) -> tuple[dict[str, d
         labels[unit_id] = {
             "topic": tag["topic"], "field": tag["field"],
             "theme": tag["sv_theme"] if flag == "sv" else tag["theme"],
-            "confidence": CONFIDENCE[conf], "code": int(code),
+            "confidence": CONFIDENCE[conf], "code": int(code), "sv_flag": flag,
         }
     return labels, errors
 
@@ -218,20 +215,91 @@ def cmd_check(_: argparse.Namespace) -> None:
     collect()
 
 
-def cmd_review(_: argparse.Namespace) -> None:
-    """Medium-confidence labels and labels that differ from both neighbours in a related run."""
-    meta = load_units()
-    labels, _ = collect(quiet=True)
-    order = [u for b in meta["batches"] for u in b["units"] if u in labels]
-    for i, unit_id in enumerate(order):
-        code = labels[unit_id]["code"]
-        prev_code = labels[order[i - 1]]["code"] if i else None
-        next_code = labels[order[i + 1]]["code"] if i + 1 < len(order) else None
-        isolated = prev_code is not None and prev_code == next_code and prev_code != code
-        if labels[unit_id]["confidence"] == "medium" or isolated:
-            reason = "medium" if labels[unit_id]["confidence"] == "medium" else f"neighbours {prev_code}"
-            print(f"{unit_id}\t{code}\t{reason}\t{meta['units'][unit_id]['snippet']}")
+def load_judge_records(batches: list[dict]) -> dict[str, dict]:
+    """Load saved judge distributions for the current batches."""
+    records = {}
+    for batch in batches:
+        path = PROBS_DIR / f"{batch['batch']}.json"
+        if not path.exists():
+            continue
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            sys.exit(f"Cannot read judge probabilities from {path}: {error}")
+        if not isinstance(saved, dict):
+            sys.exit(f"Expected unit probability records in {path}")
+        for unit_id, record in saved.items():
+            if not isinstance(record, dict) or unit_id in records:
+                sys.exit(f"Invalid or duplicate judge probability record for {unit_id}")
+            records[unit_id] = record
+    return records
 
+
+def unit_topic_weights(unit_id: str, label: dict, judge_record: dict | None, tags: list[dict]) -> dict:
+    """Return positive weights keyed by (topic, field, theme) for one unit."""
+    one_hot = {(label["topic"], label["field"], label["theme"]): 1.0}
+    if judge_record is None:
+        return one_hot
+    try:
+        judge_code = int(judge_record["code"])
+        judge_sv_flag = judge_record["sv_flag"]
+    except (KeyError, TypeError, ValueError) as error:
+        sys.exit(f"Invalid judge label record for {unit_id}: {error}")
+    if judge_code != label["code"] or judge_sv_flag != label["sv_flag"]:
+        return one_hot
+
+    probabilities = judge_record.get("probabilities")
+    if not isinstance(probabilities, dict) or not probabilities:
+        sys.exit(f"Missing judge distribution for {unit_id}")
+    retained = []
+    for choice, raw_probability in probabilities.items():
+        try:
+            probability = float(raw_probability)
+        except (TypeError, ValueError):
+            sys.exit(f"Invalid probability for {unit_id}, {choice!r}: {raw_probability!r}")
+        if not math.isfinite(probability) or not 0 <= probability <= 1:
+            sys.exit(f"Invalid probability for {unit_id}, {choice!r}: {probability!r}")
+        if probability < PROBABILITY_CUTOFF:
+            continue
+        match = re.match(r"^\s*(\d+)", str(choice))
+        if match is None:
+            sys.exit(f"Invalid judge choice for {unit_id}: {choice!r}")
+        code = int(match.group(1))
+        if not 1 <= code <= len(tags):
+            sys.exit(f"Invalid judge code for {unit_id}: {code}")
+        retained.append((code, probability))
+
+    retained_total = math.fsum(probability for _, probability in retained)
+    if not math.isfinite(retained_total) or retained_total <= 0:
+        sys.exit(f"No judge probability remains after pruning for {unit_id}")
+    try:
+        sv_probability = float(judge_record["sv_probability"])
+    except (KeyError, TypeError, ValueError):
+        sys.exit(f"Missing settler-violence probability for {unit_id}")
+    if not math.isfinite(sv_probability) or not 0 <= sv_probability <= 1:
+        sys.exit(f"Invalid settler-violence probability for {unit_id}: {sv_probability!r}")
+
+    weights = {}
+    for code, probability in retained:
+        mass = probability / retained_total
+        tag = tags[code - 1]
+        if code == 5:
+            if not tag["sv_theme"]:
+                sys.exit("Taxonomy code 5 must define a settler-violence theme")
+            plain_key = (tag["topic"], tag["field"], tag["theme"])
+            sv_key = (tag["topic"], tag["field"], tag["sv_theme"])
+            plain_weight = mass * (1 - sv_probability)
+            sv_weight = mass * sv_probability
+            if plain_weight > 0:
+                weights[plain_key] = weights.get(plain_key, 0.0) + plain_weight
+            if sv_weight > 0:
+                weights[sv_key] = weights.get(sv_key, 0.0) + sv_weight
+        else:
+            key = (tag["topic"], tag["field"], tag["theme"])
+            weights[key] = weights.get(key, 0.0) + mass
+    if not math.isclose(math.fsum(weights.values()), 1.0, rel_tol=0.0, abs_tol=1e-9):
+        sys.exit(f"Judge weights for {unit_id} do not sum to 1")
+    return weights
 
 def cmd_finalize(_: argparse.Namespace) -> None:
     posts = load_source()
@@ -243,38 +311,104 @@ def cmd_finalize(_: argparse.Namespace) -> None:
         sys.exit("Fix or finish the batches above before finalizing.")
 
     tags = load_taxonomy()
-    unclassifiable = next(t for t in tags if t["field"] == UNCLASSIFIABLE)
-    by_item = {}
+    judge_records = load_judge_records(meta["batches"])
+    by_item, weights_by_item = {}, {}
     for unit_id, unit in meta["units"].items():
+        label = unit_labels[unit_id]
+        weights = unit_topic_weights(unit_id, label, judge_records.get(unit_id), tags)
         for item_id in unit["item_ids"]:
-            by_item[item_id] = unit_labels[unit_id]
-    empty = {"topic": unclassifiable["topic"], "field": UNCLASSIFIABLE,
-             "theme": unclassifiable["theme"], "confidence": "low"}
-    rows = [by_item.get(item_id, empty) for item_id in posts["item_id"]]
+            if item_id in by_item:
+                sys.exit(f"item_id {item_id} appears in more than one unit")
+            by_item[item_id] = label
+            weights_by_item[item_id] = weights
 
-    # Taxonomy validation of the expanded labels.
-    allowed = {(t["topic"], t["field"]): {t["theme"]} | ({t["sv_theme"]} if t["sv_theme"] else set())
-               for t in tags}
-    assert set(by_item) <= set(posts["item_id"]) and len(by_item) == sum(len(u["item_ids"]) for u in meta["units"].values())
-    for item_id, label in zip(posts["item_id"], rows):
+    unclassifiable = next(t for t in tags if t["field"] == UNCLASSIFIABLE)
+    empty = {
+        "topic": unclassifiable["topic"],
+        "field": UNCLASSIFIABLE,
+        "theme": unclassifiable["theme"],
+        "confidence": "low",
+    }
+    empty_weights = {(empty["topic"], empty["field"], empty["theme"]): 1.0}
+    item_ids = list(posts["item_id"])
+    item_id_set = set(item_ids)
+    expected_captioned = sum(len(unit["item_ids"]) for unit in meta["units"].values())
+    if len(item_ids) != len(item_id_set) or not set(by_item) <= item_id_set \
+            or len(by_item) != expected_captioned:
+        sys.exit("Expanded unit labels do not match the source item_ids.")
+    rows = [by_item.get(item_id, empty) for item_id in item_ids]
+
+    # Validate labels and every weighted taxonomy tuple after expansion.
+    allowed = {
+        (tag["topic"], tag["field"]): {tag["theme"]}
+        | ({tag["sv_theme"]} if tag["sv_theme"] else set())
+        for tag in tags
+    }
+    allowed_triples = {
+        (tag["topic"], tag["field"], theme)
+        for tag in tags
+        for theme in ({tag["theme"], tag["sv_theme"]} if tag["sv_theme"] else {tag["theme"]})
+    }
+    taxonomy_order = {}
+    for code, tag in enumerate(tags, 1):
+        taxonomy_order[(tag["topic"], tag["field"], tag["theme"])] = code * 2
+        if tag["sv_theme"]:
+            taxonomy_order[(tag["topic"], tag["field"], tag["sv_theme"])] = code * 2 + 1
+    for item_id, label in zip(item_ids, rows):
         themes = allowed.get((label["topic"], label["field"]))
-        if themes is None or label["theme"] not in themes or label["confidence"] not in CONFIDENCE.values():
+        if themes is None or label["theme"] not in themes \
+                or label["confidence"] not in CONFIDENCE.values():
             sys.exit(f"Invalid label for {item_id}: {label}")
+
+    weight_rows = []
+    spread_posts = 0
+    for item_id in item_ids:
+        weights = weights_by_item.get(item_id, empty_weights)
+        total = math.fsum(weights.values())
+        if not math.isclose(total, 1.0, rel_tol=0.0, abs_tol=1e-9):
+            sys.exit(f"Topic weights for {item_id} sum to {total}, not 1")
+        if not weights or any(not math.isfinite(weight) or weight <= 0 for weight in weights.values()):
+            sys.exit(f"Topic weights for {item_id} must be positive finite values")
+        for topic_field_theme, weight in weights.items():
+            if topic_field_theme not in allowed_triples:
+                sys.exit(f"Invalid weighted taxonomy tuple for {item_id}: {topic_field_theme}")
+        if len(weights) > 1:
+            spread_posts += 1
+        for (topic, field, theme), weight in sorted(
+            weights.items(), key=lambda entry: taxonomy_order[entry[0]]
+        ):
+            weight_rows.append({
+                "item_id": item_id,
+                "topic": topic,
+                "field": field,
+                "theme": theme,
+                "weight": weight,
+            })
 
     out = posts.copy()
     for col in LABEL_COLUMNS:
         out[col] = [label[col] for label in rows]
     out["week_id"] = pd.to_datetime(out["week_id"]).dt.strftime("%Y-%m-%d")
+    weight_out = pd.DataFrame(weight_rows, columns=WEIGHT_COLUMNS)
+    if list(weight_out.columns) != WEIGHT_COLUMNS or set(weight_out["item_id"]) != item_id_set \
+            or weight_out.duplicated(["item_id", "topic", "field", "theme"]).any():
+        sys.exit(f"Topic weights failed validation before writing: {WEIGHTS_PATH}")
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out.to_csv(OUTPUT_PATH, index=False, encoding="utf-8")
+    weight_out.to_csv(WEIGHTS_PATH, index=False, encoding="utf-8")
 
     written = pd.read_csv(OUTPUT_PATH, encoding="utf-8")
     if list(written.columns) != SOURCE_COLUMNS + LABEL_COLUMNS or len(written) != EXPECTED_ROWS \
-            or list(written["item_id"]) != list(posts["item_id"]):
+            or list(written["item_id"]) != item_ids:
         sys.exit(f"Written CSV failed verification: {OUTPUT_PATH}")
     shutil.rmtree(WORK_DIR)
-    print(f"Wrote {OUTPUT_PATH} ({len(written)} rows); removed {WORK_DIR}")
+    spread_share = spread_posts / len(item_ids) if item_ids else 0.0
+    print(f"Wrote {OUTPUT_PATH} ({len(written)} rows) and {WEIGHTS_PATH} "
+          f"({len(weight_out)} rows); removed {WORK_DIR}")
     print(written["confidence"].value_counts().to_string())
+    print(f"Topic weights: {spread_posts}/{len(item_ids)} posts have a spread "
+          f"({spread_share:.1%}); {len(item_ids) - spread_posts} are one-hot")
 
 
 def main() -> None:
@@ -282,11 +416,11 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     prep = sub.add_parser("prep")
     prep.add_argument("--batch-size", type=int, default=150)
-    for name in ("codes", "check", "review", "finalize"):
+    for name in ("codes", "check", "finalize"):
         sub.add_parser(name)
     args = parser.parse_args()
     {"prep": cmd_prep, "codes": cmd_codes, "check": cmd_check,
-     "review": cmd_review, "finalize": cmd_finalize}[args.command](args)
+     "finalize": cmd_finalize}[args.command](args)
 
 
 if __name__ == "__main__":

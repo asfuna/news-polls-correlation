@@ -1,4 +1,4 @@
-"""Correlate weekly news-topic activity with changes in coalition polling."""
+"""Correlate weekly expected news-topic activity with changes in coalition polling."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ LLM_PROCESSED_DIR = DATA_DIR / "llm-processed"
 PROCESSED_DIR = DATA_DIR / "processed"
 
 CATEGORIZED_NEWS_PATH = LLM_PROCESSED_DIR / "news_posts_categorized.csv"
+TOPIC_WEIGHTS_PATH = LLM_PROCESSED_DIR / "news_posts_topic_weights.csv"
 POLLS_WEEKLY_PATH = PROCESSED_DIR / "polls_weekly.csv"
 CORRELATIONS_PATH = PROCESSED_DIR / "correlations.csv"
 NEWS_ZSCORES_POLLS_PATH = PROCESSED_DIR / "news_zscores_polls.csv"
@@ -28,17 +29,21 @@ MAX_EXACT_PERMUTATIONS = 100_000
 RANDOM_PERMUTATION_SEED = 0
 
 
-def weekly_post_counts(news_posts: pd.DataFrame) -> pd.DataFrame:
-    """Count each topic group for every week represented in the news input."""
-    included_posts = news_posts.loc[
-        news_posts["topic"].ne(OUTSIDE_ANALYSIS_TOPIC)
-    ].copy()
-    included_posts["week"] = pd.to_datetime(included_posts["week_id"])
+def weekly_post_counts(
+    news_posts: pd.DataFrame, topic_weights: pd.DataFrame
+) -> pd.DataFrame:
+    """Sum topic weights for every week represented in the categorized news input."""
     weeks = pd.to_datetime(news_posts["week_id"]).drop_duplicates().sort_values()
-    groups = included_posts[GROUP_COLUMNS].drop_duplicates()
+    included_weights = topic_weights.loc[
+        topic_weights["topic"].ne(OUTSIDE_ANALYSIS_TOPIC)
+    ].copy()
+    post_weeks = news_posts[["item_id", "week_id"]].copy()
+    post_weeks["week"] = pd.to_datetime(post_weeks["week_id"])
+    groups = included_weights[GROUP_COLUMNS].drop_duplicates()
     counts = (
-        included_posts.groupby(["week", *GROUP_COLUMNS], dropna=False)
-        .size()
+        included_weights.merge(post_weeks[["item_id", "week"]], on="item_id")
+        .groupby(["week", *GROUP_COLUMNS], dropna=False)["weight"]
+        .sum()
         .rename("total_posts")
         .reset_index()
     )
@@ -47,7 +52,7 @@ def weekly_post_counts(news_posts: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame({"week": weeks})
         .merge(groups, how="cross")
         .merge(counts, on=["week", *GROUP_COLUMNS], how="left")
-        .assign(total_posts=lambda frame: frame["total_posts"].fillna(0).astype("int64"))
+        .assign(total_posts=lambda frame: frame["total_posts"].fillna(0))
     )
 
 
@@ -172,10 +177,18 @@ def main() -> None:
             f"Categorized news input not found: {CATEGORIZED_NEWS_PATH}. "
             "Run the prompt pipeline first to create news_posts_categorized.csv."
         )
+    if not TOPIC_WEIGHTS_PATH.is_file():
+        raise FileNotFoundError(
+            f"Topic weights input not found: {TOPIC_WEIGHTS_PATH}. "
+            "Run the prompt pipeline first to create news_posts_topic_weights.csv."
+        )
 
-    news_posts = pd.read_csv(CATEGORIZED_NEWS_PATH)
+    news_posts = pd.read_csv(
+        CATEGORIZED_NEWS_PATH, usecols=["item_id", "week_id"]
+    )
+    topic_weights = pd.read_csv(TOPIC_WEIGHTS_PATH)
     polls_weekly = pd.read_csv(POLLS_WEEKLY_PATH)
-    counts = weekly_post_counts(news_posts)
+    counts = weekly_post_counts(news_posts, topic_weights)
     z_scores = news_z_scores(counts)
     poll_changes = weekly_poll_changes(polls_weekly)
     joined = join_weekly_data(z_scores, poll_changes)

@@ -9,7 +9,7 @@
   {
    "domain": "ביטחון",
    "tags": [
-    {"tag": "טרור בתוך ישראל", "theme": "טרור בתוך ישראל", "desc": "Attacks, attempted attacks and foiled attacks inside Israel."},
+    {"tag": "טרור בתוך ישראל", "theme": "טרור בתוך ישראל", "desc": "Attacks, attempted attacks and foiled attacks inside Israel. Not celebrity or entertainment stories that only mention a security scare."},
     {"tag": "איראן", "theme": "חזיתות"},
     {"tag": "מוסר הלחימה ותדמית צה\"ל", "theme": "מעמד בינלאומי", "desc": "IDF conduct in combat, war-crime allegations, the IDF's image in Israel and abroad."},
     {"tag": "עזה", "theme": "חזיתות"},
@@ -40,15 +40,15 @@
   {
    "domain": "פוליטיקה ובחירות",
    "tags": [
-    {"tag": "קמפיין מפלגות אחרות", "theme": "פוליטיקה ובחירות"},
-    {"tag": "קמפיין הליכוד ורשימתו", "theme": "פוליטיקה ובחירות", "desc": "Likud primaries, reserved slots and list placements, Likud campaign messaging."},
+    {"tag": "קמפיין מפלגות אחרות", "theme": "פוליטיקה ובחירות", "desc": "Campaigns, ads, candidates and statements of Israeli parties other than Likud and ישר! (e.g. Shas, Yisrael Beytenu, the Democrats, Otzma Yehudit), including their leaders' reactions to a war event, strike or scandal when the reaction is the headline."},
+    {"tag": "קמפיין הליכוד ורשימתו", "theme": "פוליטיקה ובחירות", "desc": "Likud primaries, reserved slots and list placements, Likud campaign messaging, and Likud ministers' and MKs' reactions to events when the reaction is the headline."},
     {"tag": "הליך הבחירות", "theme": "פוליטיקה ובחירות", "desc": "Central Elections Committee, dates, disqualifications and voting procedures."},
-    {"tag": "איחודים ומפלגות חדשות", "theme": "פוליטיקה ובחירות"},
+    {"tag": "איחודים ומפלגות חדשות", "theme": "פוליטיקה ובחירות", "desc": "New parties entering the race, mergers, joint runs, alliances between parties, and politicians joining or leaving a party (e.g. Ofer Winter's עמך, Gilad Erdan's new party)."},
     {"tag": "סקרים", "theme": "פוליטיקה ובחירות"},
     {"tag": "המפלגות הערביות ושאלת הקואליציה", "theme": "פוליטיקה ובחירות"},
-    {"tag": "קמפיין ישר!", "theme": "פוליטיקה ובחירות"},
+    {"tag": "קמפיין ישר!", "theme": "פוליטיקה ובחירות", "desc": "Gadi Eisenkot's party ישר! (Yashar!): its campaign, candidates, new recruits and Eisenkot's statements. Only this party; other parties' campaigns are not ישר!."},
     {"tag": "מחאה ותנועות מחאה", "theme": "פוליטיקה ובחירות"},
-    {"tag": "יציבות הקואליציה", "theme": "פוליטיקה ובחירות"}
+    {"tag": "יציבות הקואליציה", "theme": "פוליטיקה ובחירות", "desc": "Stability of the sitting government's coalition: crises between coalition partners, partners threatening to quit, ultimatums and votes that test the coalition. Not new parties or post-election coalition scenarios."}
    ]
   },
   {

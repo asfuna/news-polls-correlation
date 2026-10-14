@@ -7,7 +7,7 @@ Tracks weekly news coverage by theme against the governing coalition's average s
 | Directory | Contents |
 |---|---|
 | `data/raw/` | Inputs: `news_coverage.xlsx` (25 outlets' main Facebook/Instagram posts, 16 Aug–3 Oct 2026; `Posts` sheet for categorization, `Coverage` sheet for cleaning, `README` sheet for collection notes; seven Sunday–Saturday weeks, with `week_id` as the Sunday date) and `israel_2026_seat_polls.csv` (fieldwork date, firm, publisher, party seats, and coalition seats in `Gov.`). |
-| `data/llm-processed/` | `news_posts_categorized.csv`: UTF-8, one row per source post, joined by `item_id`. `work/` holds batch and label files during a categorization run; `finalize` deletes it. |
+| `data/llm-processed/` | `news_posts_categorized.csv`: UTF-8, readable top-label view with one row per source post, joined by `item_id`. `news_posts_topic_weights.csv`: fractional topic weights with columns `item_id,topic,field,theme,weight`. `work/` holds batch, label, and probability files during a categorization run; `finalize` deletes it. |
 | `data/processed/` | Generated `news_coverage.csv`, `polls_weekly.csv`, `correlations.csv`, and supplementary `news_zscores_polls.csv`. |
 | `prompts/` | Runnable `categorize_posts.md` and `taxonomy.json`. `src/categorize.py` does the categorization's data work: prep, checks and the final join. |
 
@@ -18,15 +18,17 @@ The prompt lists the taxonomy with numeric codes taken from `prompts/taxonomy.js
 ```mermaid
 flowchart LR
   WORKBOOK["data/raw/news_coverage.xlsx"] -->|Posts sheet| PREP["src/categorize.py prep<br/>clean, dedupe, batch"]
-  PREP --> PROMPT["prompts/categorize_posts.md<br/>agent fills label files"]
+  PREP --> JUDGE["judge_batch + src/judge_labels.py<br/>tag probabilities per caption"]
+  JUDGE --> PROMPT["prompts/categorize_posts.md<br/>agent runs the judge, hand-labels failures"]
   PROMPT --> FINALIZE["src/categorize.py finalize<br/>validate, join"]
   TAXONOMY["prompts/taxonomy.json"] --> FINALIZE
-  FINALIZE --> LLM["data/llm-processed/news_posts_categorized.csv"]
+  FINALIZE --> CATEGORIZED["data/llm-processed/news_posts_categorized.csv<br/>readable top-label view"]
+  FINALIZE --> WEIGHTS["data/llm-processed/news_posts_topic_weights.csv<br/>fractional topic weights"]
   WORKBOOK -->|Coverage sheet| CLEAN
   POLLS["data/raw/israel_2026_seat_polls.csv"] --> CLEAN["src/clean.py"]
   CLEAN --> COVERAGE["data/processed/news_coverage.csv"]
   CLEAN --> WEEKLY_POLLS["data/processed/polls_weekly.csv"]
-  LLM --> ANALYZE["src/analyze.py"]
+  CATEGORIZED --> ANALYZE["src/analyze.py"]
   WEEKLY_POLLS --> ANALYZE
   ANALYZE --> CORRELATIONS["data/processed/correlations.csv"]
   ANALYZE --> ZSCORES["data/processed/news_zscores_polls.csv<br/>supplementary"]
@@ -38,7 +40,7 @@ flowchart LR
 uv sync
 ```
 
-1. **Categorize.** Paste `prompts/categorize_posts.md` into an LLM coding agent at the repo root. The agent runs `src/categorize.py prep`, which auto-labels posts with no caption and merges duplicate captions. It then labels each remaining distinct caption with a taxonomy code and confidence in `data/llm-processed/work/labels/`, and runs `src/categorize.py finalize`. That writes `data/llm-processed/news_posts_categorized.csv` with `topic, field, theme, confidence` for every post in the `Posts` sheet.
+1. **Categorize.** Paste `prompts/categorize_posts.md` into omp at the repo root. The agent runs `src/categorize.py prep`, which auto-labels posts with no caption and merges duplicate captions. The helper in `src/judge_labels.py` sends the remaining distinct captions to omp's judge, which returns a probability for every tag; the agent hand-labels only captions the judge fails on twice. Then it runs `src/categorize.py finalize`, which writes `data/llm-processed/news_posts_categorized.csv` as the readable top-label view with `topic, field, theme, confidence` for every post, and `data/llm-processed/news_posts_topic_weights.csv` with `item_id,topic,field,theme,weight` for fractional topic weights.
 2. **Clean.** Melts the `Coverage` sheet into `news_coverage.csv` and averages `Gov.` per Sunday week (week of the last fieldwork day) into `polls_weekly.csv`:
 
    ```sh
